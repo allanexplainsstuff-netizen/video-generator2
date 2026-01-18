@@ -8,7 +8,7 @@
   },
   "dependencies": {
     "@google/generative-ai": "^0.21.0",
-    "openai": "^4.28.4"
+    "openai": "^4.77.0"
   },
   "scripts": {
     "dev": "vercel dev",
