@@ -1,49 +1,139 @@
 import OpenAI from "openai";
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY
-});
+// Force Node.js runtime for Vercel
+export const runtime = "nodejs";
 
 export default async function handler(req, res) {
-  if (req.method !== "POST") {
-    return res.status(405).json({
-      success: false,
-      error: "Method not allowed"
+  // Set CORS headers
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+  // Handle preflight requests
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+
+  // Only allow POST requests
+  if (req.method !== 'POST') {
+    return res.status(405).json({ 
+      success: false, 
+      error: 'Method not allowed. Use POST.' 
     });
   }
 
   try {
-    const { prompt } = req.body;
+    const { prompt, image } = req.body;
 
     if (!prompt) {
-      return res.status(400).json({
-        success: false,
-        error: "Missing prompt"
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Prompt is required' 
       });
     }
 
-    const response = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages: [
-        {
-          role: "user",
-          content: prompt
-        }
-      ]
+    // Check for API key
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) {
+      return res.status(500).json({ 
+        success: false, 
+        error: 'OpenAI API key not configured' 
+      });
+    }
+
+    // Initialize OpenAI with modern SDK
+    const openai = new OpenAI({
+      apiKey: apiKey
     });
+
+    let enhancedPrompt;
+    
+    if (image) {
+      // Handle image + text prompt using Responses API
+      const response = await openai.responses.create({
+        model: "gpt-4o-mini",
+        input: [
+          {
+            role: "system",
+            content: "You are an expert at creating enhanced video generation prompts. Analyze images and create detailed, effective prompts for AI video generation."
+          },
+          {
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text: `Analyze this image and create an enhanced video generation prompt.
+                
+                User's original prompt: "${prompt}"
+                
+                Please provide a detailed video generation prompt that:
+                1. Describes the visual elements in the image
+                2. Suggests motion, transitions, and temporal elements
+                3. Enhances the user's original prompt with visual details
+                4. Includes technical aspects (lighting, style, mood, camera movement)
+                
+                Return only the enhanced prompt text, nothing else.`
+              },
+              {
+                type: "image_url",
+                image_url: {
+                  url: `data:image/png;base64,${image}`
+                }
+              }
+            ]
+          }
+        ]
+      });
+
+      enhancedPrompt = response.output[0].content;
+    } else {
+      // Handle text-only prompt using Responses API
+      const response = await openai.responses.create({
+        model: "gpt-4o-mini",
+        input: [
+          {
+            role: "system",
+            content: "You are an expert at enhancing video generation prompts. Make prompts more detailed, descriptive, and effective for AI video generation."
+          },
+          {
+            role: "user",
+            content: `Enhance this video generation prompt to be more detailed and effective:
+            
+            Original prompt: "${prompt}"
+            
+            Please improve it by adding:
+            1. Visual details and descriptions
+            2. Motion and temporal elements
+            3. Style and aesthetic guidance
+            4. Technical details (lighting, camera, mood)
+            
+            Return only the enhanced prompt text, nothing else.`
+          }
+        ]
+      });
+
+      enhancedPrompt = response.output[0].content;
+    }
 
     return res.status(200).json({
       success: true,
-      provider: "openai",
-      result: response.choices[0].message.content
+      enhancedPrompt: enhancedPrompt.trim(),
+      provider: 'OpenAI'
     });
 
   } catch (error) {
-    console.error("OpenAI API error:", error);
-
-    return res.status(500).json({
-      success: false,
-      error: error.message || "OpenAI request failed"
+    console.error('OpenAI API error:', {
+      message: error.message,
+      code: error.code,
+      type: error.type,
+      request_id: error.request_id
+    });
+    
+    return res.status(500).json({ 
+      success: false, 
+      error: 'Failed to enhance prompt with OpenAI',
+      details: error.message 
     });
   }
 }
+
